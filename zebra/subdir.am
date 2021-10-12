@@ -51,8 +51,9 @@ man8 += $(MANBUILD)/frr-zebra.8
 endif
 
 zebra_zebra_LDADD = lib/libfrr.la $(LIBCAP)
+zebra_zebra_LDADD += mlag/libmlag_pb.la
 if HAVE_PROTOBUF3
-zebra_zebra_LDADD += mlag/libmlag_pb.la $(PROTOBUF_C_LIBS)
+zebra_zebra_LDADD += $(PROTOBUF_C_LIBS)
 zebra/zebra_mlag.$(OBJEXT): mlag/mlag.pb-c.h
 endif
 zebra_zebra_SOURCES = \
