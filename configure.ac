@@ -7,7 +7,7 @@
 ##
 AC_PREREQ([2.69])
 
-AC_INIT([frr], [8.1-dev], [https://github.com/frrouting/frr/issues])
+AC_INIT([frr], [8.2-dev], [https://github.com/frrouting/frr/issues])
 PACKAGE_URL="https://frrouting.org/"
 AC_SUBST([PACKAGE_URL])
 PACKAGE_FULLNAME="FRRouting"
@@ -797,6 +797,7 @@ fi
 #
 
 AS_IF([test "$host" = "$build"], [
+  AM_PATH_PYTHON([3])
   AC_CHECK_HEADER([gelf.h], [], [
     AC_MSG_ERROR([libelf headers are required for building clippy.  (Host only when cross-compiling.)])
   ])

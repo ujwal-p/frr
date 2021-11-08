@@ -192,7 +192,7 @@ void access_list_delete(struct access_list *access)
 	access_list_free(access);
 }
 
-/* Insert new access list to list of access_list.  Each acceess_list
+/* Insert new access list to list of access_list.  Each access_list
    is sorted by the name. */
 static struct access_list *access_list_insert(afi_t afi, const char *name)
 {
@@ -387,7 +387,7 @@ void access_list_filter_add(struct access_list *access,
 	struct filter *replace;
 	struct filter *point;
 
-	/* Automatic asignment of seq no. */
+	/* Automatic assignment of seq no. */
 	if (filter->seq == -1)
 		filter->seq = filter_new_seq_get(access);
 
@@ -635,15 +635,11 @@ DEFUN (show_ip_access_list,
 
 DEFUN (show_ip_access_list_name,
        show_ip_access_list_name_cmd,
-       "show ip access-list <(1-99)|(100-199)|(1300-1999)|(2000-2699)|WORD> [json]",
+       "show ip access-list WORD [json]",
        SHOW_STR
        IP_STR
        "List IP access lists\n"
-       "IP standard access list\n"
-       "IP extended access list\n"
-       "IP standard access list (expanded range)\n"
-       "IP extended access list (expanded range)\n"
-       "IP zebra access-list\n"
+       "IP access-list name\n"
        JSON_STR)
 {
 	bool uj = use_json(argc, argv);
@@ -669,7 +665,7 @@ DEFUN (show_ipv6_access_list_name,
        SHOW_STR
        IPV6_STR
        "List IPv6 access lists\n"
-       "IPv6 zebra access-list\n"
+       "IPv6 access-list name\n"
        JSON_STR)
 {
 	bool uj = use_json(argc, argv);

@@ -48,7 +48,7 @@
 #include "ospf6_gr.h"
 #include "lib/json.h"
 
-DEFINE_MTYPE(OSPF6D, OSPF6_NEIGHBOR, "OSPF6 neighbor");
+DEFINE_MTYPE_STATIC(OSPF6D, OSPF6_NEIGHBOR, "OSPF6 neighbor");
 
 DEFINE_HOOK(ospf6_neighbor_change,
 	    (struct ospf6_neighbor * on, int state, int next_state),
@@ -168,6 +168,9 @@ void ospf6_neighbor_delete(struct ospf6_neighbor *on)
 	THREAD_OFF(on->thread_send_lsreq);
 	THREAD_OFF(on->thread_send_lsupdate);
 	THREAD_OFF(on->thread_send_lsack);
+	THREAD_OFF(on->thread_exchange_done);
+	THREAD_OFF(on->thread_adj_ok);
+
 	THREAD_OFF(on->gr_helper_info.t_grace_timer);
 
 	bfd_sess_free(&on->bfd_session);
@@ -273,7 +276,6 @@ int hello_received(struct thread *thread)
 
 	/* reset Inactivity Timer */
 	THREAD_OFF(on->inactivity_timer);
-	on->inactivity_timer = NULL;
 	thread_add_timer(master, inactivity_timer, on,
 			 on->ospf6_if->dead_interval, &on->inactivity_timer);
 
@@ -312,7 +314,6 @@ int twoway_received(struct thread *thread)
 	SET_FLAG(on->dbdesc_bits, OSPF6_DBDESC_IBIT);
 
 	THREAD_OFF(on->thread_send_dbdesc);
-	on->thread_send_dbdesc = NULL;
 	thread_add_event(master, ospf6_dbdesc_send, on, 0,
 			 &on->thread_send_dbdesc);
 
@@ -438,7 +439,6 @@ void ospf6_check_nbr_loading(struct ospf6_neighbor *on)
 		else if (on->last_ls_req == NULL) {
 			if (on->thread_send_lsreq != NULL)
 				THREAD_OFF(on->thread_send_lsreq);
-			on->thread_send_lsreq = NULL;
 			thread_add_event(master, ospf6_lsreq_send, on, 0,
 					 &on->thread_send_lsreq);
 		}
@@ -606,6 +606,8 @@ int oneway_received(struct thread *thread)
 	THREAD_OFF(on->thread_send_lsreq);
 	THREAD_OFF(on->thread_send_lsupdate);
 	THREAD_OFF(on->thread_send_lsack);
+	THREAD_OFF(on->thread_exchange_done);
+	THREAD_OFF(on->thread_adj_ok);
 
 	return 0;
 }
@@ -620,7 +622,6 @@ int inactivity_timer(struct thread *thread)
 	if (IS_OSPF6_DEBUG_NEIGHBOR(EVENT))
 		zlog_debug("Neighbor Event %s: *InactivityTimer*", on->name);
 
-	on->inactivity_timer = NULL;
 	on->drouter = on->prev_drouter = 0;
 	on->bdrouter = on->prev_bdrouter = 0;
 

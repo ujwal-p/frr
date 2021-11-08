@@ -972,16 +972,8 @@ static int netlink_interface(struct nlmsghdr *h, ns_id_t ns_id, int startup)
 		link_nsid = ns_id_get_absolute(ns_id, link_nsid);
 	}
 
-	/* Add interface.
-	 * We add by index first because in some cases such as the master
-	 * interface, we have the index before we have the name. Fixing
-	 * back references on the slave interfaces is painful if not done
-	 * this way, i.e. by creating by ifindex.
-	 */
-	ifp = if_get_by_ifindex(ifi->ifi_index, vrf_id);
+	ifp = if_get_by_name(name, vrf_id, NULL);
 	set_ifindex(ifp, ifi->ifi_index, zns); /* add it to ns struct */
-
-	if_set_name(ifp, name);
 
 	ifp->flags = ifi->ifi_flags & 0x0000fffff;
 	ifp->mtu6 = ifp->mtu = *(uint32_t *)RTA_DATA(tb[IFLA_MTU]);
@@ -1089,7 +1081,7 @@ int interface_lookup_netlink(struct zebra_ns *zns)
 	if (ret < 0)
 		return ret;
 	ret = netlink_parse_info(netlink_interface, netlink_cmd, &dp_info, 0,
-				 1);
+				 true);
 	if (ret < 0)
 		return ret;
 
@@ -1099,7 +1091,7 @@ int interface_lookup_netlink(struct zebra_ns *zns)
 	if (ret < 0)
 		return ret;
 	ret = netlink_parse_info(netlink_interface, netlink_cmd, &dp_info, 0,
-				 0);
+				 true);
 	if (ret < 0)
 		return ret;
 
@@ -1128,7 +1120,7 @@ static int interface_addr_lookup_netlink(struct zebra_ns *zns)
 	if (ret < 0)
 		return ret;
 	ret = netlink_parse_info(netlink_interface_addr, netlink_cmd, &dp_info,
-				 0, 1);
+				 0, true);
 	if (ret < 0)
 		return ret;
 
@@ -1137,7 +1129,7 @@ static int interface_addr_lookup_netlink(struct zebra_ns *zns)
 	if (ret < 0)
 		return ret;
 	ret = netlink_parse_info(netlink_interface_addr, netlink_cmd, &dp_info,
-				 0, 1);
+				 0, true);
 	if (ret < 0)
 		return ret;
 
@@ -1168,7 +1160,7 @@ int kernel_interface_set_master(struct interface *master,
 	nl_attr_put32(&req.n, sizeof(req), IFLA_LINK, slave->ifindex);
 
 	return netlink_talk(netlink_talk_filter, &req.n, &zns->netlink_cmd, zns,
-			    0);
+			    false);
 }
 
 /* Interface address modification. */
@@ -1292,11 +1284,22 @@ int netlink_interface_addr(struct nlmsghdr *h, ns_id_t ns_id, int startup)
 
 	ifp = if_lookup_by_index_per_ns(zns, ifa->ifa_index);
 	if (ifp == NULL) {
-		flog_err(
-			EC_LIB_INTERFACE,
-			"netlink_interface_addr can't find interface by index %d",
-			ifa->ifa_index);
-		return -1;
+		if (startup) {
+			/* During startup, failure to lookup the referenced
+			 * interface should not be an error, so we have
+			 * downgraded this condition to warning, and we permit
+			 * the startup interface state retrieval to continue.
+			 */
+			flog_warn(EC_LIB_INTERFACE,
+				  "%s: can't find interface by index %d",
+				  __func__, ifa->ifa_index);
+			return 0;
+		} else {
+			flog_err(EC_LIB_INTERFACE,
+				 "%s: can't find interface by index %d",
+				 __func__, ifa->ifa_index);
+			return -1;
+		}
 	}
 
 	/* Flags passed through */
@@ -1803,7 +1806,7 @@ int netlink_link_change(struct nlmsghdr *h, ns_id_t ns_id, int startup)
 
 			if (ifp == NULL) {
 				/* unknown interface */
-				ifp = if_get_by_name(name, vrf_id);
+				ifp = if_get_by_name(name, vrf_id, NULL);
 			} else {
 				/* pre-configured interface, learnt now */
 				if (ifp->vrf_id != vrf_id)
@@ -1832,6 +1835,8 @@ int netlink_link_change(struct nlmsghdr *h, ns_id_t ns_id, int startup)
 			/* Update link. */
 			zebra_if_update_link(ifp, link_ifindex, ns_id);
 
+			ifp->ll_type =
+				netlink_to_zebra_link_type(ifi->ifi_type);
 			netlink_interface_update_hw_addr(tb, ifp);
 
 			/* Inform clients, install any configured addresses. */
@@ -1899,6 +1904,8 @@ int netlink_link_change(struct nlmsghdr *h, ns_id_t ns_id, int startup)
 			/* Update link. */
 			zebra_if_update_link(ifp, link_ifindex, ns_id);
 
+			ifp->ll_type =
+				netlink_to_zebra_link_type(ifi->ifi_type);
 			netlink_interface_update_hw_addr(tb, ifp);
 
 			if (if_is_no_ptm_operative(ifp)) {
@@ -2054,7 +2061,7 @@ int netlink_protodown(struct interface *ifp, bool down)
 	nl_attr_put32(&req.n, sizeof(req), IFLA_LINK, ifp->ifindex);
 
 	return netlink_talk(netlink_talk_filter, &req.n, &zns->netlink_cmd, zns,
-			    0);
+			    false);
 }
 
 /* Interface information read by netlink. */

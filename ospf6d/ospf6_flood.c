@@ -266,9 +266,13 @@ void ospf6_decrement_retrans_count(struct ospf6_lsa *lsa)
 /* RFC2328 section 13.2 Installing LSAs in the database */
 void ospf6_install_lsa(struct ospf6_lsa *lsa)
 {
+	struct ospf6 *ospf6;
 	struct timeval now;
 	struct ospf6_lsa *old;
 	struct ospf6_area *area = NULL;
+
+	ospf6 = ospf6_get_by_lsdb(lsa);
+	assert(ospf6);
 
 	/* Remove the old instance from all neighbors' Link state
 	   retransmission list (RFC2328 13.2 last paragraph) */
@@ -330,20 +334,14 @@ void ospf6_install_lsa(struct ospf6_lsa *lsa)
 	    && !CHECK_FLAG(lsa->flag, OSPF6_LSA_DUPLICATE)) {
 
 		/* check if it is new lsa ? or existing lsa got modified ?*/
-		if (!old || OSPF6_LSA_IS_CHANGED(old, lsa)) {
-			struct ospf6 *ospf6;
-
-			ospf6 = ospf6_get_by_lsdb(lsa);
-
-			assert(ospf6);
-
+		if (!old || OSPF6_LSA_IS_CHANGED(old, lsa))
 			ospf6_helper_handle_topo_chg(ospf6, lsa);
-		}
 	}
 
 	ospf6_lsdb_add(lsa, lsa->lsdb);
 
-	if (ntohs(lsa->header->type) == OSPF6_LSTYPE_TYPE_7) {
+	if (ntohs(lsa->header->type) == OSPF6_LSTYPE_TYPE_7
+	    && lsa->header->adv_router != ospf6->router_id) {
 		area = OSPF6_AREA(lsa->lsdb->data);
 		ospf6_translated_nssa_refresh(area, lsa, NULL);
 		ospf6_schedule_abr_task(area->ospf6);
@@ -546,7 +544,6 @@ void ospf6_flood_interface(struct ospf6_neighbor *from, struct ospf6_lsa *lsa,
 		/* reschedule retransmissions to all neighbors */
 		for (ALL_LIST_ELEMENTS(oi->neighbor_list, node, nnode, on)) {
 			THREAD_OFF(on->thread_send_lsupdate);
-			on->thread_send_lsupdate = NULL;
 			thread_add_event(master, ospf6_lsupdate_send_neighbor,
 					 on, 0, &on->thread_send_lsupdate);
 		}
@@ -1027,15 +1024,8 @@ void ospf6_receive_lsa(struct ospf6_neighbor *from,
 		if (old)
 			ospf6_flood_clear(old);
 
-		/* (b) immediately flood and (c) remove from all retrans-list */
-		/* Prevent self-originated LSA to be flooded. this is to make
-		reoriginated instance of the LSA not to be rejected by other
-		routers
-		due to MinLSArrival. */
 		self_originated = (new->header->adv_router
 				   == from->ospf6_if->area->ospf6->router_id);
-		if (!self_originated)
-			ospf6_flood(from, new);
 
 		/* Received non-self-originated Grace LSA. */
 		if (IS_GRACE_LSA(new) && !self_originated) {
@@ -1081,6 +1071,14 @@ void ospf6_receive_lsa(struct ospf6_neighbor *from,
 			}
 		}
 
+		/* (b) immediately flood and (c) remove from all retrans-list */
+		/* Prevent self-originated LSA to be flooded. this is to make
+		 * reoriginated instance of the LSA not to be rejected by other
+		 * routers due to MinLSArrival.
+		 */
+		if (!self_originated)
+			ospf6_flood(from, new);
+
 		/* (d), installing lsdb, which may cause routing
 			table calculation (replacing database copy) */
 		ospf6_install_lsa(new);
@@ -1112,7 +1110,6 @@ void ospf6_receive_lsa(struct ospf6_neighbor *from,
 					"Newer instance of the self-originated LSA");
 				zlog_debug("Schedule reorigination");
 			}
-			new->refresh = NULL;
 			thread_add_event(master, ospf6_lsa_refresh, new, 0,
 					 &new->refresh);
 		}
@@ -1238,7 +1235,6 @@ void ospf6_receive_lsa(struct ospf6_neighbor *from,
 			ospf6_lsa_delete(new);
 			return;
 		}
-		return;
 	}
 }
 

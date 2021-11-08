@@ -204,7 +204,6 @@ int ospf6_orig_as_external_lsa(struct thread *thread)
 	uint32_t type, adv_router;
 
 	oi = (struct ospf6_interface *)THREAD_ARG(thread);
-	oi->thread_as_extern_lsa = NULL;
 
 	if (oi->state == OSPF6_INTERFACE_DOWN)
 		return 0;
@@ -290,9 +289,7 @@ void ospf6_asbr_update_route_ecmp_path(struct ospf6_route *old,
 			 * origin.
 			 */
 			if (o_path->area_id != route->path.area_id
-			    || (memcmp(&(o_path)->origin, &(route)->path.origin,
-				       sizeof(struct ospf6_ls_origin))
-				!= 0))
+			    || !ospf6_ls_origin_same(o_path, &route->path))
 				continue;
 
 			/* Cost is not same then delete current path */
@@ -411,10 +408,7 @@ void ospf6_asbr_update_route_ecmp_path(struct ospf6_route *old,
 			for (ALL_LIST_ELEMENTS_RO(old_route->paths, anode,
 						  o_path)) {
 				if (o_path->area_id == route->path.area_id
-				    && (memcmp(&(o_path)->origin,
-					       &(route)->path.origin,
-					       sizeof(struct ospf6_ls_origin))
-					== 0))
+				    && ospf6_ls_origin_same(o_path, &route->path))
 					break;
 			}
 			/* If path is not found in old_route paths's list,
@@ -1096,8 +1090,6 @@ static int ospf6_asbr_routemap_update_timer(struct thread *thread)
 	struct ospf6_redist *red;
 	int type;
 
-	ospf6->t_distribute_update = NULL;
-
 	for (type = 0; type < ZEBRA_ROUTE_MAX; type++) {
 		red = ospf6_redist_lookup(ospf6, type, 0);
 
@@ -1139,7 +1131,6 @@ void ospf6_asbr_distribute_list_update(struct ospf6 *ospf6,
 	if (IS_OSPF6_DEBUG_ASBR)
 		zlog_debug("%s: trigger redistribute reset thread", __func__);
 
-	ospf6->t_distribute_update = NULL;
 	thread_add_timer_msec(master, ospf6_asbr_routemap_update_timer, ospf6,
 			      OSPF_MIN_LS_INTERVAL,
 			      &ospf6->t_distribute_update);
@@ -1317,7 +1308,8 @@ static void ospf6_asbr_redistribute_set(struct ospf6 *ospf6, int type)
 {
 	ospf6_zebra_redistribute(type, ospf6->vrf_id);
 
-	ospf6_asbr_status_update(ospf6, ++ospf6->redist_count);
+	++ospf6->redist_count;
+	ospf6_asbr_status_update(ospf6, ospf6->redist_count);
 }
 
 static void ospf6_asbr_redistribute_unset(struct ospf6 *ospf6,
@@ -1339,7 +1331,8 @@ static void ospf6_asbr_redistribute_unset(struct ospf6 *ospf6,
 	}
 
 	ospf6_asbr_routemap_unset(red);
-	ospf6_asbr_status_update(ospf6, --ospf6->redist_count);
+	--ospf6->redist_count;
+	ospf6_asbr_status_update(ospf6, ospf6->redist_count);
 }
 
 /* When an area is unstubified, flood all the external LSAs in the area */
@@ -1531,7 +1524,6 @@ void ospf6_asbr_redistribute_add(int type, ifindex_t ifindex,
 	route = ospf6_route_create(ospf6);
 	route->type = OSPF6_DEST_TYPE_NETWORK;
 	prefix_copy(&route->prefix, prefix);
-	route->ospf6 = ospf6;
 
 	info = (struct ospf6_external_info *)XCALLOC(
 		MTYPE_OSPF6_EXTERNAL_INFO, sizeof(struct ospf6_external_info));
@@ -2051,10 +2043,12 @@ ospf6_routemap_rule_match_interface(void *rule, const struct prefix *prefix,
 				    void *object)
 {
 	struct interface *ifp;
+	struct ospf6_route *route;
 	struct ospf6_external_info *ei;
 
-	ei = ((struct ospf6_route *)object)->route_option;
-	ifp = if_lookup_by_name_all_vrf((char *)rule);
+	route = object;
+	ei = route->route_option;
+	ifp = if_lookup_by_name((char *)rule, route->ospf6->vrf_id);
 
 	if (ifp != NULL && ei->ifindex == ifp->ifindex)
 		return RMAP_MATCH;
@@ -3378,7 +3372,6 @@ static int ospf6_asbr_summary_process(struct thread *thread)
 	struct ospf6 *ospf6 = THREAD_ARG(thread);
 	int operation = 0;
 
-	ospf6->t_external_aggr = NULL;
 	operation = ospf6->aggr_action;
 
 	if (IS_OSPF6_DEBUG_AGGR)

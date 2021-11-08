@@ -2712,6 +2712,28 @@ static void bgp_process_evpn_route_injection(struct bgp *bgp, afi_t afi,
 }
 
 /*
+ * Utility to determine whether a particular path_info should use
+ * the IMPLICIT_NULL label. This is pretty specialized: it's only called
+ * in a path where we basically _know_ this is a BGP-LU route.
+ */
+static bool bgp_lu_need_imp_null(const struct bgp_path_info *new_select)
+{
+	/* Certain types get imp null; so do paths where the nexthop is
+	 * not labeled.
+	 */
+	if (new_select->sub_type == BGP_ROUTE_STATIC
+	    || new_select->sub_type == BGP_ROUTE_AGGREGATE
+	    || new_select->sub_type == BGP_ROUTE_REDISTRIBUTE)
+		return true;
+	else if (new_select->extra == NULL ||
+		 !bgp_is_valid_label(&new_select->extra->label[0]))
+		/* TODO -- should be configurable? */
+		return true;
+	else
+		return false;
+}
+
+/*
  * old_select = The old best path
  * new_select = the new best path
  *
@@ -2802,11 +2824,7 @@ static void bgp_process_main_one(struct bgp *bgp, struct bgp_dest *dest,
 				 * implicit-null for local routes, aggregate
 				 * and redistributed routes
 				 */
-				if (new_select->sub_type == BGP_ROUTE_STATIC
-				    || new_select->sub_type
-						== BGP_ROUTE_AGGREGATE
-				    || new_select->sub_type
-						== BGP_ROUTE_REDISTRIBUTE) {
+				if (bgp_lu_need_imp_null(new_select)) {
 					if (CHECK_FLAG(
 						    dest->flags,
 						    BGP_NODE_REGISTERED_FOR_LABEL)
@@ -4588,8 +4606,11 @@ static int bgp_announce_route_timer_expired(struct thread *t)
  * bgp_announce_route
  *
  * *Triggers* announcement of routes of a given AFI/SAFI to a peer.
+ *
+ * if force is true we will force an update even if the update
+ * limiting code is attempted to kick in.
  */
-void bgp_announce_route(struct peer *peer, afi_t afi, safi_t safi)
+void bgp_announce_route(struct peer *peer, afi_t afi, safi_t safi, bool force)
 {
 	struct peer_af *paf;
 	struct update_subgroup *subgrp;
@@ -4605,6 +4626,9 @@ void bgp_announce_route(struct peer *peer, afi_t afi, safi_t safi)
 	 */
 	if (!subgrp || paf->t_announce_route)
 		return;
+
+	if (force)
+		SET_FLAG(subgrp->sflags, SUBGRP_STATUS_FORCE_UPDATES);
 
 	/*
 	 * Start a timer to stagger/delay the announce. This serves
@@ -4634,7 +4658,7 @@ void bgp_announce_route_all(struct peer *peer)
 	safi_t safi;
 
 	FOREACH_AFI_SAFI (afi, safi)
-		bgp_announce_route(peer, afi, safi);
+		bgp_announce_route(peer, afi, safi, false);
 }
 
 /* Flag or unflag bgp_dest to determine whether it should be treated by
@@ -4772,7 +4796,7 @@ static int bgp_soft_reconfig_table_task(struct thread *thread)
 						table->soft_reconfig_peers,
 						peer);
 					bgp_announce_route(peer, table->afi,
-							   table->safi);
+							   table->safi, false);
 					if (list_isempty(
 						    table->soft_reconfig_peers)) {
 						list_delete(
@@ -4800,7 +4824,7 @@ static int bgp_soft_reconfig_table_task(struct thread *thread)
 	*/
 	for (ALL_LIST_ELEMENTS(table->soft_reconfig_peers, node, nnode, peer)) {
 		listnode_delete(table->soft_reconfig_peers, peer);
-		bgp_announce_route(peer, table->afi, table->safi);
+		bgp_announce_route(peer, table->afi, table->safi, false);
 	}
 
 	list_delete(&table->soft_reconfig_peers);
@@ -8409,8 +8433,7 @@ enum bgp_display_type {
 	normal_list,
 };
 
-static const char *
-bgp_path_selection_reason2str(enum bgp_path_selection_reason reason)
+const char *bgp_path_selection_reason2str(enum bgp_path_selection_reason reason)
 {
 	switch (reason) {
 	case bgp_path_selection_none:
@@ -12001,7 +12024,7 @@ DEFPY(show_ip_bgp, show_ip_bgp_cmd,
           <[all$all] dampening <parameters>\
            |route-map WORD\
            |prefix-list WORD\
-           |filter-list WORD\
+           |filter-list AS_PATH_FILTER_NAME\
            |community-list <(1-500)|COMMUNITY_LIST_NAME> [exact-match]\
            |A.B.C.D/M longer-prefixes\
            |X:X::X:X/M longer-prefixes\
@@ -13427,16 +13450,6 @@ show_adj_route(struct vty *vty, struct peer *peer, struct bgp_table *table,
 
 	bgp = peer->bgp;
 
-	if (!bgp) {
-		if (use_json) {
-			json_object_string_add(json, "alert", "no BGP");
-			vty_out(vty, "%s\n", json_object_to_json_string(json));
-			json_object_free(json);
-		} else
-			vty_out(vty, "%% No bgp\n");
-		return;
-	}
-
 	subgrp = peer_subgroup(peer, afi, safi);
 
 	if (type == bgp_show_adj_route_advertised && subgrp
@@ -13677,6 +13690,9 @@ static int peer_adj_routes(struct vty *vty, struct peer *peer, afi_t afi,
 				"No such neighbor or address family");
 			vty_out(vty, "%s\n", json_object_to_json_string(json));
 			json_object_free(json);
+			json_object_free(json_ar);
+			json_object_free(json_scode);
+			json_object_free(json_ocode);
 		} else
 			vty_out(vty, "%% No such neighbor or address family\n");
 
@@ -13693,6 +13709,9 @@ static int peer_adj_routes(struct vty *vty, struct peer *peer, afi_t afi,
 				"Inbound soft reconfiguration not enabled");
 			vty_out(vty, "%s\n", json_object_to_json_string(json));
 			json_object_free(json);
+			json_object_free(json_ar);
+			json_object_free(json_scode);
+			json_object_free(json_ocode);
 		} else
 			vty_out(vty,
 				"%% Inbound soft reconfiguration not enabled\n");
@@ -13761,14 +13780,17 @@ static int peer_adj_routes(struct vty *vty, struct peer *peer, afi_t afi,
 			json_object_to_json_string_ext(
 				json, JSON_C_TO_STRING_PRETTY));
 
-		if (!output_count && !filtered_count) {
+		/*
+		 * These fields only give up ownership to `json` when `header1`
+		 * is used (set to zero). See code in `show_adj_route` and
+		 * `show_adj_route_header`.
+		 */
+		if (header1 == 1) {
 			json_object_free(json_scode);
 			json_object_free(json_ocode);
 		}
 
-		if (json)
-			json_object_free(json);
-
+		json_object_free(json);
 	} else if (output_count > 0) {
 		if (filtered_count > 0)
 			vty_out(vty,
@@ -13961,10 +13983,11 @@ DEFPY (show_ip_bgp_instance_neighbor_advertised_route,
 
 DEFUN (show_ip_bgp_neighbor_received_prefix_filter,
        show_ip_bgp_neighbor_received_prefix_filter_cmd,
-       "show [ip] bgp [<ipv4|ipv6> [unicast]] neighbors <A.B.C.D|X:X::X:X|WORD> received prefix-filter [json]",
+       "show [ip] bgp [<view|vrf> VIEWVRFNAME] [<ipv4|ipv6> [unicast]] neighbors <A.B.C.D|X:X::X:X|WORD> received prefix-filter [json]",
        SHOW_STR
        IP_STR
        BGP_STR
+       BGP_INSTANCE_HELP_STR
        "Address Family\n"
        "Address Family\n"
        "Address Family modifier\n"
@@ -13979,50 +14002,28 @@ DEFUN (show_ip_bgp_neighbor_received_prefix_filter,
 	afi_t afi = AFI_IP6;
 	safi_t safi = SAFI_UNICAST;
 	char *peerstr = NULL;
-
 	char name[BUFSIZ];
-	union sockunion su;
 	struct peer *peer;
-	int count, ret;
-
+	int count;
 	int idx = 0;
+	struct bgp *bgp = NULL;
+	bool uj = use_json(argc, argv);
 
-	/* show [ip] bgp */
-	if (argv_find(argv, argc, "ip", &idx))
-		afi = AFI_IP;
-	/* [<ipv4|ipv6> [unicast]] */
-	if (argv_find(argv, argc, "ipv4", &idx))
-		afi = AFI_IP;
-	if (argv_find(argv, argc, "ipv6", &idx))
-		afi = AFI_IP6;
+	if (uj)
+		argc--;
+
+	bgp_vty_find_and_parse_afi_safi_bgp(vty, argv, argc, &idx, &afi, &safi,
+					    &bgp, uj);
+	if (!idx)
+		return CMD_WARNING;
+
 	/* neighbors <A.B.C.D|X:X::X:X|WORD> */
 	argv_find(argv, argc, "neighbors", &idx);
 	peerstr = argv[++idx]->arg;
 
-	bool uj = use_json(argc, argv);
-
-	ret = str2sockunion(peerstr, &su);
-	if (ret < 0) {
-		peer = peer_lookup_by_conf_if(NULL, peerstr);
-		if (!peer) {
-			if (uj)
-				vty_out(vty, "{}\n");
-			else
-				vty_out(vty,
-					"%% Malformed address or name: %s\n",
-					peerstr);
-			return CMD_WARNING;
-		}
-	} else {
-		peer = peer_lookup(NULL, &su);
-		if (!peer) {
-			if (uj)
-				vty_out(vty, "{}\n");
-			else
-				vty_out(vty, "No peer\n");
-			return CMD_WARNING;
-		}
-	}
+	peer = peer_lookup_in_view(vty, bgp, peerstr, uj);
+	if (!peer)
+		return CMD_WARNING;
 
 	snprintf(name, sizeof(name), "%s.%d.%d", peer->host, afi, safi);
 	count = prefix_bgp_show_prefix_list(NULL, afi, name, uj);

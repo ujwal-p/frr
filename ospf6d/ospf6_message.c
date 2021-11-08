@@ -726,7 +726,6 @@ static void ospf6_dbdesc_recv_master(struct ospf6_header *oh,
 				zlog_debug("Ignoring LSA of reserved scope");
 			ospf6_lsa_delete(his);
 			continue;
-			break;
 		}
 
 		if (ntohs(his->header->type) == OSPF6_LSTYPE_AS_EXTERNAL
@@ -773,9 +772,9 @@ static void ospf6_dbdesc_recv_master(struct ospf6_header *oh,
 	/* More bit check */
 	if (!CHECK_FLAG(dbdesc->bits, OSPF6_DBDESC_MBIT)
 	    && !CHECK_FLAG(on->dbdesc_bits, OSPF6_DBDESC_MBIT))
-		thread_add_event(master, exchange_done, on, 0, NULL);
+		thread_add_event(master, exchange_done, on, 0,
+				 &on->thread_exchange_done);
 	else {
-		on->thread_send_dbdesc = NULL;
 		thread_add_event(master, ospf6_dbdesc_send_newone, on, 0,
 				 &on->thread_send_dbdesc);
 	}
@@ -856,7 +855,6 @@ static void ospf6_dbdesc_recv_slave(struct ospf6_header *oh,
 				zlog_debug(
 					"Duplicated dbdesc causes retransmit");
 			THREAD_OFF(on->thread_send_dbdesc);
-			on->thread_send_dbdesc = NULL;
 			thread_add_event(master, ospf6_dbdesc_send, on, 0,
 					 &on->thread_send_dbdesc);
 			return;
@@ -949,7 +947,6 @@ static void ospf6_dbdesc_recv_slave(struct ospf6_header *oh,
 				zlog_debug("Ignoring LSA of reserved scope");
 			ospf6_lsa_delete(his);
 			continue;
-			break;
 		}
 
 		if (OSPF6_LSA_SCOPE(his->header->type) == OSPF6_SCOPE_AS
@@ -1084,7 +1081,6 @@ static void ospf6_lsreq_recv(struct in6_addr *src, struct in6_addr *dst,
 			if (IS_OSPF6_DEBUG_MESSAGE(oh->type, RECV))
 				zlog_debug("Ignoring LSA of reserved scope");
 			continue;
-			break;
 		}
 
 		/* Find database copy */
@@ -1636,7 +1632,6 @@ static void ospf6_lsack_recv(struct in6_addr *src, struct in6_addr *dst,
 				zlog_debug("Ignoring LSA of reserved scope");
 			ospf6_lsa_delete(his);
 			continue;
-			break;
 		}
 
 		if (IS_OSPF6_DEBUG_MESSAGE(oh->type, RECV))
@@ -2267,7 +2262,8 @@ int ospf6_dbdesc_send_newone(struct thread *thread)
 	if (!CHECK_FLAG(on->dbdesc_bits, OSPF6_DBDESC_MSBIT) && /* Slave */
 	    !CHECK_FLAG(on->dbdesc_last.bits, OSPF6_DBDESC_MBIT)
 	    && !CHECK_FLAG(on->dbdesc_bits, OSPF6_DBDESC_MBIT))
-		thread_add_event(master, exchange_done, on, 0, NULL);
+		thread_add_event(master, exchange_done, on, 0,
+				 &on->thread_exchange_done);
 
 	thread_execute(master, ospf6_dbdesc_send, on, 0);
 	return 0;
@@ -2399,7 +2395,6 @@ int ospf6_lsreq_send(struct thread *thread)
 
 	/* set next thread */
 	if (on->request_list->count != 0) {
-		on->thread_send_lsreq = NULL;
 		thread_add_timer(master, ospf6_lsreq_send, on,
 				 on->ospf6_if->rxmt_interval,
 				 &on->thread_send_lsreq);
@@ -2585,11 +2580,9 @@ int ospf6_lsupdate_send_neighbor(struct thread *thread)
 		ospf6_packet_free(op);
 
 	if (on->lsupdate_list->count != 0) {
-		on->thread_send_lsupdate = NULL;
 		thread_add_event(master, ospf6_lsupdate_send_neighbor, on, 0,
 				 &on->thread_send_lsupdate);
 	} else if (on->retrans_list->count != 0) {
-		on->thread_send_lsupdate = NULL;
 		thread_add_timer(master, ospf6_lsupdate_send_neighbor, on,
 				 on->ospf6_if->rxmt_interval,
 				 &on->thread_send_lsupdate);
@@ -2703,7 +2696,6 @@ int ospf6_lsupdate_send_interface(struct thread *thread)
 		ospf6_packet_free(op);
 
 	if (oi->lsupdate_list->count > 0) {
-		oi->thread_send_lsupdate = NULL;
 		thread_add_event(master, ospf6_lsupdate_send_interface, oi, 0,
 				 &oi->thread_send_lsupdate);
 	}

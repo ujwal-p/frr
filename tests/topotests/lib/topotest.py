@@ -1445,7 +1445,7 @@ class Router(Node):
 
         running = self.listDaemons()
         if running:
-            for _ in range(0, 5):
+            for _ in range(0, 30):
                 sleep(
                     0.5,
                     "{}: waiting for daemons stopping: {}".format(
@@ -1725,7 +1725,7 @@ class Router(Node):
                     )
                     if valgrind_extra:
                         cmdenv += (
-                            "--gen-suppressions=all --expensive-definedness-checks=yes"
+                            " --gen-suppressions=all --expensive-definedness-checks=yes"
                         )
                 elif daemon in strace_daemons or "all" in strace_daemons:
                     cmdenv = "strace -f -D -o {1}/{2}.strace.{0} ".format(

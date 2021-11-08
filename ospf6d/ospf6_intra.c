@@ -248,7 +248,6 @@ int ospf6_router_lsa_originate(struct thread *thread)
 	int count;
 
 	oa = (struct ospf6_area *)THREAD_ARG(thread);
-	oa->thread_router_lsa = NULL;
 
 	if (oa->ospf6->gr_info.restart_in_progress) {
 		if (IS_DEBUG_OSPF6_GR)
@@ -533,7 +532,6 @@ int ospf6_network_lsa_originate(struct thread *thread)
 	uint16_t type;
 
 	oi = (struct ospf6_interface *)THREAD_ARG(thread);
-	oi->thread_network_lsa = NULL;
 
 	/* The interface must be enabled until here. A Network-LSA of a
 	   disabled interface (but was once enabled) should be flushed
@@ -784,7 +782,6 @@ int ospf6_link_lsa_originate(struct thread *thread)
 	struct ospf6_prefix *op;
 
 	oi = (struct ospf6_interface *)THREAD_ARG(thread);
-	oi->thread_link_lsa = NULL;
 
 	assert(oi->area);
 
@@ -1030,7 +1027,6 @@ int ospf6_intra_prefix_lsa_originate_stub(struct thread *thread)
 	int ls_id = 0;
 
 	oa = (struct ospf6_area *)THREAD_ARG(thread);
-	oa->thread_intra_prefix_lsa = NULL;
 
 	if (oa->ospf6->gr_info.restart_in_progress) {
 		if (IS_DEBUG_OSPF6_GR)
@@ -1269,7 +1265,6 @@ int ospf6_intra_prefix_lsa_originate_transit(struct thread *thread)
 	uint16_t type;
 
 	oi = (struct ospf6_interface *)THREAD_ARG(thread);
-	oi->thread_intra_prefix_lsa = NULL;
 
 	assert(oi->area);
 
@@ -1524,9 +1519,8 @@ void ospf6_intra_prefix_route_ecmp_path(struct ospf6_area *oa,
 			/* Check old route path and route has same
 			 * origin.
 			 */
-			if (o_path->area_id != route->path.area_id ||
-			    (memcmp(&(o_path)->origin, &(route)->path.origin,
-				   sizeof(struct ospf6_ls_origin)) != 0))
+			if (o_path->area_id != route->path.area_id
+			    || !ospf6_ls_origin_same(o_path, &route->path))
 				continue;
 
 			/* Cost is not same then delete current path */
@@ -1630,10 +1624,8 @@ void ospf6_intra_prefix_route_ecmp_path(struct ospf6_area *oa,
 			 */
 			for (ALL_LIST_ELEMENTS_RO(old_route->paths, anode,
 						  o_path)) {
-				if (o_path->area_id == route->path.area_id &&
-				    (memcmp(&(o_path)->origin,
-					&(route)->path.origin,
-					sizeof(struct ospf6_ls_origin)) == 0))
+				if (o_path->area_id == route->path.area_id
+				    && ospf6_ls_origin_same(o_path, &route->path))
 					break;
 			}
 			/* If path is not found in old_route paths's list,
@@ -2479,12 +2471,13 @@ DEFUN (debug_ospf6_brouter_router,
 
 DEFUN (no_debug_ospf6_brouter_router,
        no_debug_ospf6_brouter_router_cmd,
-       "no debug ospf6 border-routers router-id",
+       "no debug ospf6 border-routers router-id [A.B.C.D]",
        NO_STR
        DEBUG_STR
        OSPF6_STR
        "Debug border router\n"
        "Debug specific border router\n"
+       "Specify border-router's router-id\n"
       )
 {
 	OSPF6_DEBUG_BROUTER_SPECIFIC_ROUTER_OFF();
@@ -2510,12 +2503,13 @@ DEFUN (debug_ospf6_brouter_area,
 
 DEFUN (no_debug_ospf6_brouter_area,
        no_debug_ospf6_brouter_area_cmd,
-       "no debug ospf6 border-routers area-id",
+       "no debug ospf6 border-routers area-id [A.B.C.D]",
        NO_STR
        DEBUG_STR
        OSPF6_STR
        "Debug border router\n"
        "Debug border routers in specific Area\n"
+       "Specify Area-ID\n"
       )
 {
 	OSPF6_DEBUG_BROUTER_SPECIFIC_AREA_OFF();

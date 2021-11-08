@@ -891,7 +891,6 @@ int ospf6_lsa_refresh(struct thread *thread)
 
 	new = ospf6_lsa_create(self->header);
 	new->lsdb = old->lsdb;
-	new->refresh = NULL;
 	thread_add_timer(master, ospf6_lsa_refresh, new, OSPF_LS_REFRESH_TIME,
 			 &new->refresh);
 
@@ -1071,7 +1070,7 @@ DEFPY (debug_ospf6_lsa_aggregation,
 
 DEFUN (debug_ospf6_lsa_type,
        debug_ospf6_lsa_hex_cmd,
-       "debug ospf6 lsa <router|network|inter-prefix|inter-router|as-external|link|intra-prefix|unknown> [<originate|examine|flooding>]",
+       "debug ospf6 lsa <router|network|inter-prefix|inter-router|as-external|nssa|link|intra-prefix|unknown> [<originate|examine|flooding>]",
        DEBUG_STR
        OSPF6_STR
        "Debug Link State Advertisements (LSAs)\n"
@@ -1080,6 +1079,7 @@ DEFUN (debug_ospf6_lsa_type,
        "Display Inter-Area-Prefix LSAs\n"
        "Display Inter-Router LSAs\n"
        "Display As-External LSAs\n"
+       "Display NSSA LSAs\n"
        "Display Link LSAs\n"
        "Display Intra-Area-Prefix LSAs\n"
        "Display LSAs of unknown origin\n"
@@ -1123,7 +1123,7 @@ DEFUN (debug_ospf6_lsa_type,
 
 DEFUN (no_debug_ospf6_lsa_type,
        no_debug_ospf6_lsa_hex_cmd,
-       "no debug ospf6 lsa <router|network|inter-prefix|inter-router|as-external|link|intra-prefix|unknown> [<originate|examine|flooding>]",
+       "no debug ospf6 lsa <router|network|inter-prefix|inter-router|as-external|nssa|link|intra-prefix|unknown> [<originate|examine|flooding>]",
        NO_STR
        DEBUG_STR
        OSPF6_STR
@@ -1133,6 +1133,7 @@ DEFUN (no_debug_ospf6_lsa_type,
        "Display Inter-Area-Prefix LSAs\n"
        "Display Inter-Router LSAs\n"
        "Display As-External LSAs\n"
+       "Display NSSA LSAs\n"
        "Display Link LSAs\n"
        "Display Intra-Area-Prefix LSAs\n"
        "Display LSAs of unknown origin\n"
